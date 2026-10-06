@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Swift tests
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+      - name: Toolchain
+        run: swift --version
+      - name: Build
+        run: swift build
+      - name: Test
+        run: swift test
+
+  example:
+    name: Example apps
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project
+        working-directory: Example
+        run: xcodegen generate
+      - name: Build for iPhone and iPad (iOS Simulator)
+        run: |
+          xcodebuild build \
+            -project Example/ZoomableImageDemo.xcodeproj \
+            -scheme ZoomableImageDemo \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO
+      - name: Build for macOS
+        run: |
+          xcodebuild build \
+            -project Example/ZoomableImageDemo.xcodeproj \
+            -scheme ZoomableImageDemoMac \
+            -destination 'platform=macOS' \
+            CODE_SIGNING_ALLOWED=NO
+
+  screenshots:
+    name: README screenshots
+    if: github.event_name != 'pull_request'
+    needs: example
+    runs-on: macos-26
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project
+        working-directory: Example
+        run: xcodegen generate
+      - name: Capture screenshots (iPhone and iPad)
+        run: bash scripts/screenshots.sh ZoomableImageDemo io.github.halilozel1903.ZoomableImageDemo --iphone grid zoomed dismiss --ipad gallery
+      - name: Capture screenshots (Mac)
+        run: bash scripts/screenshots-mac.sh ZoomableImageDemoMac viewer
+      - name: Commit screenshots
+        run: |
+          git config user.name "Halil Özel"
+          git config user.email "halilozel1903@gmail.com"
+          git add docs/screenshots
+          if git diff --cached --quiet; then
+            echo "Screenshots unchanged"
+          else
+            git commit -m "Update README screenshots [skip ci]"
+            git push
+          fi
